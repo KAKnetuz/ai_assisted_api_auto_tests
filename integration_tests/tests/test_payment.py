@@ -48,9 +48,11 @@ def _make_block_precondition(
     price: str,
     procedure_number: str,
     procedure_uuid: str,
+    cleanup: list[dict[str, str]],
 ) -> tuple[dict[str, Any], Any]:
     """
     Предусловие: блокировка средств по тарифу.
+    Блокировка регистрируется в cleanup (фикстура block_cleanup) и снимается после теста.
     Возвращает (response_data, blocked_sum) для cross-check с ContractPrice.
     """
     tariff_name = PAYMENT_TARIFF_BY_PLATFORM[endpoint]
@@ -72,6 +74,7 @@ def _make_block_precondition(
 
     resp = block_client.block(payload, endpoint=endpoint)
     CustomAssertions.assert_status_code(resp, [200, 201])
+    cleanup.append({"ProcedureUuid": procedure_uuid, "SupplierUuid": supplier_uuid})
 
     data = CustomAssertions.assert_valid_json(resp)
 
@@ -141,6 +144,7 @@ def _assert_payment_success(
 def test_pos_payment_single_winner(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
 ) -> None:
     supplier = settings.SUPPLIER_UUIDS[0]
@@ -150,7 +154,9 @@ def test_pos_payment_single_winner(
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _, blocked_sum = _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid)
+    _, blocked_sum = _make_block_precondition(
+        block_client, endpoint, supplier, price, proc_num, proc_uuid, block_cleanup
+    )
 
     item = PaymentClient.build_payment_info_item(supplier_uuid=supplier, price=price)
     payload = PaymentClient.build_payment_payload(
@@ -168,6 +174,7 @@ def test_pos_payment_single_winner(
 def test_pos_payment_multiple_winners(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
 ) -> None:
     suppliers = settings.SUPPLIER_UUIDS[:2]
@@ -178,7 +185,7 @@ def test_pos_payment_multiple_winners(
     blocked_sums: list[Any] = []
     for sup in suppliers:
         set_test_context(supplier_uuid=sup)
-        _, b_sum = _make_block_precondition(block_client, endpoint, sup, price, proc_num, proc_uuid)
+        _, b_sum = _make_block_precondition(block_client, endpoint, sup, price, proc_num, proc_uuid, block_cleanup)
         blocked_sums.append(b_sum)
 
     payment_items = [PaymentClient.build_payment_info_item(supplier_uuid=sup, price=price) for sup in suppliers]
@@ -201,6 +208,7 @@ def test_pos_payment_multiple_winners(
 def test_pos_payment_contract_price_platform_a(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
     price: str,
     expected: str,
@@ -214,7 +222,7 @@ def test_pos_payment_contract_price_platform_a(
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid)
+    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid, block_cleanup)
 
     item = PaymentClient.build_payment_info_item(supplier_uuid=supplier, price=price)
     payload = PaymentClient.build_payment_payload(
@@ -236,6 +244,7 @@ def test_pos_payment_contract_price_platform_a(
 def test_pos_payment_contract_price_platform_b(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
     price: str,
     expected: str,
@@ -249,7 +258,7 @@ def test_pos_payment_contract_price_platform_b(
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid)
+    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid, block_cleanup)
 
     item = PaymentClient.build_payment_info_item(supplier_uuid=supplier, price=price)
     payload = PaymentClient.build_payment_payload(
@@ -322,13 +331,14 @@ def test_neg_payment_missing_field_in_item(
 def test_neg_payment_nonexistent_supplier_uuid(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
 ) -> None:
     valid_supplier = settings.SUPPLIER_UUIDS[0]
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _make_block_precondition(block_client, endpoint, valid_supplier, "1000", proc_num, proc_uuid)
+    _make_block_precondition(block_client, endpoint, valid_supplier, "1000", proc_num, proc_uuid, block_cleanup)
 
     fake_uuid = DataGenerators.generate_nonexistent_uuid()
     item = PaymentClient.build_payment_info_item(supplier_uuid=fake_uuid, price="1000")
@@ -361,13 +371,14 @@ def test_neg_payment_nonexistent_supplier_uuid(
 def test_neg_payment_price_out_of_range(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
 ) -> None:
     supplier = settings.SUPPLIER_UUIDS[0]
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _make_block_precondition(block_client, endpoint, supplier, "1000", proc_num, proc_uuid)
+    _make_block_precondition(block_client, endpoint, supplier, "1000", proc_num, proc_uuid, block_cleanup)
 
     item = PaymentClient.build_payment_info_item(supplier_uuid=supplier, price="10000000000000")
     payload = PaymentClient.build_payment_payload(
@@ -391,6 +402,7 @@ def test_neg_payment_price_out_of_range(
 def test_neg_payment_duplicate_request(
     block_client: BlockClient,
     payment_client: PaymentClient,
+    block_cleanup: list[dict[str, str]],
     endpoint: str,
 ) -> None:
     supplier = settings.SUPPLIER_UUIDS[0]
@@ -400,7 +412,7 @@ def test_neg_payment_duplicate_request(
     proc_num = DataGenerators.generate_procedure_number()
     proc_uuid = DataGenerators.generate_uuid()
 
-    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid)
+    _make_block_precondition(block_client, endpoint, supplier, price, proc_num, proc_uuid, block_cleanup)
 
     item = PaymentClient.build_payment_info_item(supplier_uuid=supplier, price=price)
     payload = PaymentClient.build_payment_payload(

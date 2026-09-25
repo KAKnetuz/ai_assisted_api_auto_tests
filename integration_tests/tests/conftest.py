@@ -12,6 +12,7 @@
 import logging
 import random
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -214,8 +215,8 @@ def shared_order_data(
     order_client: OrderClient,
     supplier_uuid: str,
     tariff_id: int,
-    api_headers: dict[str, str],
-) -> dict[str, Any]:
+) -> Iterator[dict[str, Any]]:
+    """Заказ-предусловие на модуль; после тестов модуля отменяется."""
     procedure_number = f"{random.randint(1000, 9999)}"
     procedure_uuid = str(uuid.uuid4())
     price = "100"
@@ -233,13 +234,43 @@ def shared_order_data(
         CustomAssertions.assert_field_exists(response_data, "OrderUuid")
         order_uuid = response_data["OrderUuid"]
         logger.info(f"Предусловие: Создан заказ с OrderUuid: {order_uuid}")
-        return {
-            "order_uuid": order_uuid,
-            "procedure_uuid": procedure_uuid,
-            "procedure_number": procedure_number,
-        }
     except Exception as e:
         pytest.fail(f"Ошибка при создании заказа в предусловии: {e}")
+
+    yield {
+        "order_uuid": order_uuid,
+        "procedure_uuid": procedure_uuid,
+        "procedure_number": procedure_number,
+    }
+
+    try:
+        order_client.cancel_order_by_uuid(
+            order_uuid=order_uuid,
+            supplier_uuid=supplier_uuid,
+            reason="Автотест: отмена заказа-предусловия",
+        )
+        logger.info(f"Очистка: заказ {order_uuid} отменён")
+    except Exception as e:
+        logger.warning(f"Очистка: не удалось отменить заказ {order_uuid}: {e}")
+
+
+@pytest.fixture(scope="function")
+def block_cleanup(block_client: BlockClient) -> Iterator[list[dict[str, str]]]:
+    """
+    Список блокировок, созданных тестом; после теста каждая снимается.
+
+    Тест добавляет {"ProcedureUuid": ..., "SupplierUuid": ...} сразу после
+    успешной блокировки. Ошибка разблокировки (например, средства уже списаны
+    payment) не роняет тест — только лог.
+    """
+    blocks: list[dict[str, str]] = []
+    yield blocks
+    for unblock_payload in blocks:
+        try:
+            response = block_client.unblock(unblock_payload)
+            logger.info(f"Очистка: разблокировка {unblock_payload} → {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Очистка: разблокировка {unblock_payload} не удалась: {e}")
 
 
 @pytest.fixture(scope="module")
@@ -265,7 +296,20 @@ def suppliers_map() -> dict[str, dict[str, str]]:
 
 
 @pytest.fixture(autouse=True, scope="function")
-def set_test_context_for_current_supplier(supplier_uuid: str, account_number: str):
-    set_test_context(supplier_uuid=supplier_uuid, account_number=account_number)
+def set_test_context_for_current_supplier(request: pytest.FixtureRequest) -> Iterator[None]:
+    """
+    Добавляет в сообщения ассертов UUID контрагента и номер счёта.
+
+    Фикстура НЕ зависит от supplier_uuid напрямую: иначе autouse-зависимость
+    параметризует каждый тест по всем контрагентам, даже если тест их не использует.
+    """
+    if "supplier_uuid" in request.fixturenames:
+        supplier_uuid = request.getfixturevalue("supplier_uuid")
+        set_test_context(
+            supplier_uuid=supplier_uuid,
+            account_number=MAIN_ACCOUNT_BY_SUPPLIER.get(supplier_uuid),
+        )
+    else:
+        set_test_context(supplier_uuid=None, account_number=None)
     yield
     set_test_context(supplier_uuid=None, account_number=None)

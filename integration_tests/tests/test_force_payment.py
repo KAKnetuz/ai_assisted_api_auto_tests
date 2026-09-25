@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
+from integration_tests.api_clients.block_client import BlockClient
 from integration_tests.api_clients.force_payment_client import ForcePaymentClient
+from integration_tests.api_clients.order_client import OrderClient
 from integration_tests.config.constants import FORCE_PAYMENT_SCALE, AccountTag, ResultCode
 from integration_tests.helpers.assertions import CustomAssertions
 from integration_tests.helpers.data_generators import DataGenerators
@@ -135,28 +137,19 @@ def _extract_pay_status(order: dict[str, Any]) -> str:
 
 
 def _cancel_order_and_refund(
-    order_client: Any,
+    order_client: OrderClient,
+    block_client: BlockClient,
     supplier_uuid: str,
     order_uuid: str,
     procedure_uuid: str,
-    procedure_number: str,
 ) -> None:
-    cancel_payload = {
-        "OrderUuid": order_uuid,
-        "SupplierUuid": supplier_uuid,
-        "Reason": "Тестовая отмена заказа для возврата средств",
-    }
+    """Очистка: отмена заказа и снятие блокировки. Ошибки только логируются."""
     try:
-        cancel_methods = ["cancel_order"]
-        cancel_response = None
-        for method_name in cancel_methods:
-            method = getattr(order_client, method_name, None)
-            if callable(method):
-                cancel_response = method(cancel_payload)
-                break
-        if cancel_response is None:
-            logger.warning("Метод отмены не найден")
-            return
+        cancel_response = order_client.cancel_order_by_uuid(
+            order_uuid=order_uuid,
+            supplier_uuid=supplier_uuid,
+            reason="Тестовая отмена заказа для возврата средств",
+        )
         if cancel_response.status_code in [200, 201]:
             logger.info("Заказ %s отменён", order_uuid)
         else:
@@ -164,25 +157,14 @@ def _cancel_order_and_refund(
     except Exception as e:
         logger.error("Ошибка отмены заказа %s: %s", order_uuid, str(e))
 
-    unblock_payload = {
-        "ProcedureUuid": procedure_uuid,
-        "ProcedureNumber": procedure_number,
-    }
     try:
-        unblock_methods = ["unblock", "unblock_order", "bulk_unblock"]
-        unblock_response = None
-        for method_name in unblock_methods:
-            method = getattr(order_client, method_name, None)
-            if callable(method):
-                unblock_response = method(unblock_payload)
-                break
-        if unblock_response is not None:
-            if unblock_response.status_code in [200, 201]:
-                logger.info("Средства по процедуре %s разблокированы", procedure_number)
-            else:
-                logger.warning("Разблокировка вернула статус %s", unblock_response.status_code)
+        unblock_response = block_client.unblock({"ProcedureUuid": procedure_uuid, "SupplierUuid": supplier_uuid})
+        if unblock_response.status_code in [200, 201]:
+            logger.info("Средства по процедуре %s разблокированы", procedure_uuid)
+        else:
+            logger.warning("Разблокировка вернула статус %s", unblock_response.status_code)
     except Exception as e:
-        logger.error("Ошибка разблокировки %s: %s", procedure_number, str(e))
+        logger.error("Ошибка разблокировки %s: %s", procedure_uuid, str(e))
 
 
 class TestForcePayment:
@@ -555,7 +537,8 @@ class TestForcePayment:
     def test_neg_force_payment_price_exceeds_balance_with_positive_balance(
         self,
         force_payment_client: ForcePaymentClient,
-        order_client: Any,
+        order_client: OrderClient,
+        block_client: BlockClient,
         account_client: Any,
         supplier_uuid: str,
         tariff_scale_unique_name: str,
@@ -595,7 +578,6 @@ class TestForcePayment:
             include_account_fields=True,
         )
         procedure_uuid = payload["ProcedureUuid"]
-        procedure_number = payload["ProcedureNumber"]
         response = force_payment_client.force_payment(payload)
 
         order_uuid = None
@@ -617,8 +599,8 @@ class TestForcePayment:
         if order_uuid:
             _cancel_order_and_refund(
                 order_client=order_client,
+                block_client=block_client,
                 supplier_uuid=supplier_uuid,
                 order_uuid=order_uuid,
                 procedure_uuid=procedure_uuid,
-                procedure_number=procedure_number,
             )
