@@ -170,7 +170,7 @@ class TestOrderCreate:
 
         order_uuid: str = create_data["OrderUuid"]
 
-       
+
         request.addfinalizer(lambda: self._cleanup_order(order_client, order_uuid, supplier_uuid))
 
         # Act: проверка статуса через универсальный core-эндпоинт
@@ -370,7 +370,7 @@ class TestOrderCreate:
             endpoint=endpoint,
         )
 
-   
+
     @pytest.mark.regression
     @pytest.mark.parametrize("endpoint", ORDER_CREATE_PLATFORMS, ids=str)
     @allure.story("Негатив: отрицательная цена")
@@ -427,7 +427,7 @@ class TestOrderCreate:
                 endpoint=endpoint,
             )
 
-    
+
     @pytest.mark.regression
     @pytest.mark.parametrize("endpoint", ORDER_CREATE_PLATFORMS, ids=str)
     @allure.story("Негатив: неверный формат ProcedureUuid")

@@ -197,7 +197,7 @@ class CustomAssertions:
     def assert_tariff_allowed(data: dict[str, Any]) -> None:
         """Проверка, что тариф разрешён к покупке (расчёт стоимости)."""
         context_msg = _get_context_message()
-        
+
         is_allowed = data.get("IsAllowed") if "IsAllowed" in data else data.get("isAllowed")
 
         if is_allowed is None:

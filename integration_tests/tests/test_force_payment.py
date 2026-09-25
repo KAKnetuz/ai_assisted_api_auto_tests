@@ -112,7 +112,7 @@ def _get_order_status_response(order_client: Any, payload: dict[str, Any]) -> An
 
 def _get_first_order(order_client: Any, payload: dict[str, Any]) -> dict[str, Any]:
     last_data = None
-    for attempt in range(1, 4):
+    for _ in range(3):
         response = _get_order_status_response(order_client, payload)
         CustomAssertions.assert_status_code(response, [200])
         data = CustomAssertions.assert_valid_json(response)
@@ -585,13 +585,11 @@ class TestForcePayment:
             _assert_client_error(response)
         elif response.status_code == 200:
             data = CustomAssertions.assert_valid_json(response)
+            has_error_code = str(data.get("Code", "")) not in {"", str(ResultCode.SUCCESS.value)}
             if "IsAllowed" in data:
                 assert data["IsAllowed"] is False
-            elif "Code" in data and str(data["Code"]) not in {"", str(ResultCode.SUCCESS.value)}:
-                pass
-            elif not data.get("TransactionUuid"):
-                pass
-            else:
+            elif not has_error_code and data.get("TransactionUuid"):
+                # Оплата неожиданно прошла — заказ нужно откатить.
                 order_uuid = data.get("OrderUuid")
         else:
             pytest.fail(f"Unexpected status: {response.status_code}")

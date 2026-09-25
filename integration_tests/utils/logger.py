@@ -19,7 +19,7 @@ from typing import Any
 
 
 class TokenMaskingFilter(logging.Filter):
-    
+
 
     SENSITIVE_KEYS = {"token", "password", "secret", "authorization", "access_token"}
 
