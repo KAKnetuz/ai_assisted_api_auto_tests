@@ -70,11 +70,13 @@ class BaseAPIClient:
         session = requests.Session()
 
         # Retry-стратегия: 3 попытки с экспоненциальной задержкой.
+        # Повторяем только идемпотентные методы: повтор POST после 5xx может
+        # создать дубль заказа, блокировки или списания.
         retry_strategy = Retry(
             total=3,
             backoff_factor=0.5,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            allowed_methods=frozenset({"GET", "HEAD", "OPTIONS"}),
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)

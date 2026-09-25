@@ -176,10 +176,10 @@ class CustomLogger:
         self.logger.debug(f"   Headers: {safe_headers}")
 
         if params:
-            self.logger.debug(f"   Params: {params}")
+            self.logger.debug(f"   Params: {self._mask_sensitive_data(params)}")
 
         if body:
-            body_str = str(body)
+            body_str = str(self._mask_sensitive_data(body))
             if len(body_str) > 500:
                 body_str = body_str[:500] + "... [truncated]"
             self.logger.debug(f"   Body: {body_str}")
@@ -201,7 +201,7 @@ class CustomLogger:
         self.logger.debug(f"{status_icon} RESPONSE: Status {status_code} | Time: {response_time:.3f}s")
 
         if body:
-            body_str = str(body)
+            body_str = str(self._mask_sensitive_data(body))
             if len(body_str) > 500:
                 body_str = body_str[:500] + "... [truncated]"
             self.logger.debug(f"   Body: {body_str}")
@@ -213,20 +213,31 @@ class CustomLogger:
 
     # --- Вспомогательные методы ---
 
-    def _mask_sensitive_data(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Маскирование чувствительных данных в словаре."""
-        sensitive_keys = {"authorization", "token", "password", "secret", "access_token"}
-        masked = data.copy()
+    def _mask_sensitive_data(self, data: Any) -> Any:
+        """
+        Маскирование чувствительных данных (рекурсивно для dict/list).
 
-        for key in masked:
-            if key.lower() in sensitive_keys:
-                value = str(masked[key])
-                if len(value) > 20:
-                    masked[key] = f"{value[:10]}...{value[-10:]}"
+        Вызывается ДО форматирования сообщения: TokenMaskingFilter видит уже
+        готовую строку (repr словаря — не JSON) и такие значения не распознаёт.
+        """
+        if isinstance(data, dict):
+            masked: dict[Any, Any] = {}
+            for key, value in data.items():
+                if isinstance(key, str) and key.lower() in TokenMaskingFilter.SENSITIVE_KEYS:
+                    masked[key] = self._mask_value(str(value))
                 else:
-                    masked[key] = "***"
+                    masked[key] = self._mask_sensitive_data(value)
+            return masked
+        if isinstance(data, list):
+            return [self._mask_sensitive_data(item) for item in data]
+        return data
 
-        return masked
+    @staticmethod
+    def _mask_value(value: str) -> str:
+        """Оставляет края длинного значения, короткое скрывает полностью."""
+        if len(value) > 20:
+            return f"{value[:10]}...{value[-10:]}"
+        return "***"
 
 
 # --- Глобальный экземпляр логгера для быстрого доступа ---

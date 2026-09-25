@@ -1,0 +1,23 @@
+[project]
+name = "ai-assisted-api-auto-tests"
+version = "0.1.0"
+description = "Интеграционные API-автотесты (демонстрационная версия)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["integration_tests/tests"]
+addopts = [
+    "-p", "no:warnings",
+    "-v",
+    "--alluredir=allure-results",
+    "--import-mode=importlib",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "smoke: Smoke tests",
+    "regression: Regression tests",
+    "critical: Critical tests",
+]
