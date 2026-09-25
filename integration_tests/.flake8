@@ -1,0 +1,5 @@
+[flake8]
+# Переопределяем настройки для папки с тестами
+extend-ignore = E501,F405,F403,C901,E722,E203,E262,E701,F402,SCS108
+max-line-length = 120
+max-complexity = 10
